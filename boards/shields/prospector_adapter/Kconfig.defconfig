@@ -68,5 +68,6 @@ config PROSPECTOR_TOUCH_ENABLED
     select INPUT
     select INPUT_CST816S
     select INPUT_CST816S_INTERRUPT
+    select INPUT_CST816S_EV_DEVICE
 
 endif

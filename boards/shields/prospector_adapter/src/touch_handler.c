@@ -54,9 +54,9 @@ static void handle_brightness_swipe(bool increase) {
 static void touch_input_cb(struct input_event *evt, void *user_data) {
     ARG_UNUSED(user_data);
 
-    /* Handle gesture events from CST816S */
-    if (evt->code == INPUT_ABS_MISC) {
-        switch (evt->value) {
+    /* Handle gesture events from CST816S (reported as INPUT_EV_DEVICE) */
+    if (evt->type == INPUT_EV_DEVICE) {
+        switch (evt->code) {
         case GESTURE_SWIPE_UP:
             handle_brightness_swipe(true);  /* Swipe up = increase brightness */
             break;
