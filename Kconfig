@@ -14,8 +14,12 @@ config PROSPECTOR_USE_AMBIENT_LIGHT_SENSOR
     bool "Use ambient light sensor for auto brightness"
     default y
 
-config PROSPECTOR_FIXED_BRIGHTNESS
-    int "Fixed display brightness"
+config PROSPECTOR_DEFAULT_BRIGHTNESS
+    int "Default display brightness (1-100)"
     default 50
     range 1 100
-    depends on !PROSPECTOR_USE_AMBIENT_LIGHT_SENSOR
+
+config PROSPECTOR_BRIGHTNESS_STEP
+    int "Brightness step for increment/decrement"
+    default 10
+    range 1 50

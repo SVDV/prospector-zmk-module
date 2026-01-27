@@ -1,0 +1,5 @@
+description: Display brightness control behavior
+
+compatible: "zmk,behavior-display-brightness"
+
+include: two_param.yaml

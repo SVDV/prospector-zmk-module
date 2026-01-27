@@ -1,5 +1,12 @@
 / {
-   chosen {
-      zephyr,display = &st7789;
-  };
+    chosen {
+        zephyr,display = &st7789;
+    };
+
+    behaviors {
+        /omit-if-no-ref/ disp_bri: disp_bri {
+            compatible = "zmk,behavior-display-brightness";
+            #binding-cells = <2>;
+        };
+    };
 };
