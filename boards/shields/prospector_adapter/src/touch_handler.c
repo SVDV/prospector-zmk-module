@@ -19,7 +19,7 @@ extern int psptr_set_display_brightness(uint8_t brightness);
 
 /* Track last swipe time for cooldown */
 static int64_t last_swipe_time = 0;
-static K_SPINLOCK_DEFINE(cooldown_lock);
+K_SPINLOCK_DEFINE(cooldown_lock);
 
 /* CST816S gesture codes */
 #define GESTURE_SWIPE_UP    0x01
