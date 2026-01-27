@@ -18,8 +18,7 @@ extern int psptr_set_display_brightness(uint8_t brightness);
 #define SWIPE_COOLDOWN_MS 400
 
 /* Track last swipe time for cooldown */
-static int64_t last_swipe_time = 0;
-K_SPINLOCK_DEFINE(cooldown_lock);
+static int64_t last_swipe_time;
 
 /* CST816S gesture codes */
 #define GESTURE_SWIPE_UP    0x01
@@ -30,14 +29,11 @@ K_SPINLOCK_DEFINE(cooldown_lock);
 static void handle_brightness_swipe(bool increase) {
     int64_t now = k_uptime_get();
 
-    /* Check cooldown with spinlock for thread safety */
-    k_spinlock_key_t key = k_spin_lock(&cooldown_lock);
+    /* Check cooldown */
     if ((now - last_swipe_time) < SWIPE_COOLDOWN_MS) {
-        k_spin_unlock(&cooldown_lock, key);
         return;
     }
     last_swipe_time = now;
-    k_spin_unlock(&cooldown_lock, key);
 
     uint8_t current = psptr_get_display_brightness();
     uint8_t step = CONFIG_PROSPECTOR_BRIGHTNESS_STEP;
