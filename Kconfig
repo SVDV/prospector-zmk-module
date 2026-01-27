@@ -23,3 +23,7 @@ config PROSPECTOR_BRIGHTNESS_STEP
     int "Brightness step for increment/decrement"
     default 10
     range 1 50
+
+config PROSPECTOR_TOUCH_ENABLED
+    bool "Enable touch panel for swipe brightness control"
+    default y

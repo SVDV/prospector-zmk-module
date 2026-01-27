@@ -64,4 +64,9 @@ config PROSPECTOR_USE_AMBIENT_LIGHT_SENSOR
     select SENSOR
     select APDS9960
 
+config PROSPECTOR_TOUCH_ENABLED
+    select INPUT
+    select INPUT_CST816S
+    select INPUT_CST816S_INTERRUPT
+
 endif
