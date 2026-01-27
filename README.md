@@ -8,6 +8,7 @@ All the necessary stuff for [Prospector](https://github.com/carrefinho/prospecto
 - Peripheral battery bar
 - Peripheral connection status
 - Caps word indicator
+- Display brightness control via keyboard shortcuts
 
 ## Installation
 
@@ -63,18 +64,38 @@ keymap {
 }
 ```
 
+### Display Brightness Control
+
+The module includes a `&disp_bri` behavior for controlling display brightness from your keymap:
+
+```dts
+#include <dt-bindings/zmk/display_brightness.h>
+
+// In behaviors section of keymap:
+disp_bri: disp_bri {
+    compatible = "zmk,behavior-display-brightness";
+    #binding-cells = <2>;
+};
+
+// In keymap bindings:
+&disp_bri DISP_BRI_INC 0  // Increase brightness
+&disp_bri DISP_BRI_DEC 0  // Decrease brightness
+&disp_bri DISP_BRI_TOG 0  // Toggle on/off
+```
+
 ## Configuration
 
 To customize, add config options to your `config/[YOUR KEYBOARD SHIELD].conf` like so:
 ```ini
 CONFIG_PROSPECTOR_USE_AMBIENT_LIGHT_SENSOR=n
-CONFIG_PROSPECTOR_FIXED_BRIGHTNESS=80
+CONFIG_PROSPECTOR_DEFAULT_BRIGHTNESS=80
 ```
 
 ### Available config options:
 | Name                                              | Description                                                               | Default      |
 | ------------------------------------------------- | --------------------------------------------------------------------------| ------------ |
 | `CONFIG_PROSPECTOR_USE_AMBIENT_LIGHT_SENSOR`      | Use ambient light sensor for auto brightness, set to `n` if building without one                              | y            |
-| `CONFIG_PROSPECTOR_FIXED_BRIGHTNESS`               | Set fixed display brightess when not using ambient light sensor           | 50 (1-100)   |
-| `CONFIG_PROSPECTOR_PROSPECTOR_ROTATE_DISPLAY_180` | Rotate the display 180 degrees                                            | n            |
+| `CONFIG_PROSPECTOR_DEFAULT_BRIGHTNESS`            | Set default display brightness when not using ambient light sensor        | 50 (1-100)   |
+| `CONFIG_PROSPECTOR_BRIGHTNESS_STEP`               | Brightness adjustment step size for keyboard controls                     | 10 (1-100)   |
+| `CONFIG_PROSPECTOR_ROTATE_DISPLAY_180`            | Rotate the display 180 degrees                                            | n            |
 | `CONFIG_PROSPECTOR_LAYER_ROLLER_ALL_CAPS`         | Convert layer names to all caps                                           | n            |
