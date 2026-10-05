@@ -67,6 +67,11 @@ config PROSPECTOR_LIVE_MAP_IDLE_RESET_MIN
     range 0 1440
     depends on PROSPECTOR_VIEW_LIVE_MAP
 
+config PROSPECTOR_PERF_OVERLAY
+    bool "Show LVGL's frame rate and CPU load at the top of the screen (for debugging)"
+    select LV_USE_SYSMON
+    select LV_USE_PERF_MONITOR
+
 config PROSPECTOR_VIEW_GAUGE
     bool "WPM gauge view"
     default y

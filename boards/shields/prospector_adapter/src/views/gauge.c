@@ -6,6 +6,7 @@
  */
 
 #include <math.h>
+#include <string.h>
 
 #include <fonts.h>
 #include <status.h>
@@ -28,6 +29,10 @@
 #define GAUGE_Y 68
 #define GAUGE_H 104
 #define PI_F 3.14159265f
+#define GLIDE_MS 400   /* arc and number glide to each new WPM, like the battery bars */
+#define RING_IN (RADIUS - ARC_W)
+#define RING_OUT 103   /* outer end of the ticks */
+#define CAP_PAD 7      /* rounded arc cap (5 px) plus anti-aliasing */
 
 static lv_obj_t *dial;
 static lv_obj_t *number;
@@ -46,13 +51,14 @@ static struct {
     char buf[4];
 } gauges[2] = {{.x = 20}, {.x = 252}};
 
-static int wpm;
+static int wpm = -1;    /* latest WPM from ZMK, -1 when unknown */
+static int32_t shown_x10; /* WPM currently drawn, in tenths, while gliding */
 static uint8_t layer;
 
 static const char *const mod_symbols[4] = {PSPTR_SYMBOL_CONTROL, PSPTR_SYMBOL_OPTION,
                                            PSPTR_SYMBOL_COMMAND, PSPTR_SYMBOL_SHIFT};
 
-static float fill(void) { return wpm <= 0 ? 0 : MIN((float)wpm / WPM_MAX, 1.0f); }
+static float fill_of(int32_t x10) { return x10 <= 0 ? 0 : MIN((float)x10 / (WPM_MAX * 10), 1.0f); }
 
 static void dial_draw(lv_event_t *e) {
     const struct psptr_theme *t = psptr_theme();
@@ -60,7 +66,7 @@ static void dial_draw(lv_event_t *e) {
     lv_area_t o;
     lv_obj_get_coords(dial, &o);
     int32_t cx = o.x1 + CX, cy = o.y1 + CY;
-    float f = fill();
+    float f = fill_of(shown_x10);
     lv_color_t accent = psptr_layer_color(layer);
 
     lv_draw_arc_dsc_t arc;
@@ -102,6 +108,78 @@ static void place_centered(lv_obj_t *label, const lv_font_t *font, const char *t
     lv_obj_set_pos(label, CX - psptr_text_width(font, text) / 2, y);
 }
 
+/* Invalidate only the slice of ring (arc, caps and ticks) between two fill fractions. */
+static void invalidate_sector(float f0, float f1) {
+    if (f1 < f0) {
+        float tmp = f0;
+        f0 = f1;
+        f1 = tmp;
+    }
+    float a0 = ARC_START + ARC_SWEEP * f0, a1 = ARC_START + ARC_SWEEP * f1;
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    for (float a = a0;; a += 5) {
+        a = MIN(a, a1);
+        float c = cosf(a * PI_F / 180.0f), s = sinf(a * PI_F / 180.0f);
+        for (int r = RING_IN; r <= RING_OUT; r += RING_OUT - RING_IN) {
+            x0 = MIN(x0, CX + r * c);
+            x1 = MAX(x1, CX + r * c);
+            y0 = MIN(y0, CY + r * s);
+            y1 = MAX(y1, CY + r * s);
+        }
+        if (a >= a1) {
+            break;
+        }
+    }
+    lv_area_t o;
+    lv_obj_get_coords(dial, &o);
+    lv_area_t area = {o.x1 + (int32_t)x0 - CAP_PAD, o.y1 + (int32_t)y0 - CAP_PAD,
+                      o.x1 + (int32_t)x1 + CAP_PAD, o.y1 + (int32_t)y1 + CAP_PAD};
+    lv_obj_invalidate_area(dial, &area);
+}
+
+static void show_number(int32_t x10) {
+    /* format into a scratch buffer: number_buf is the label's own (static) text, so comparing
+     * after writing into it would always match and the label would never re-measure */
+    char next[sizeof(number_buf)];
+    if (wpm < 0) {
+        lv_snprintf(next, sizeof(next), "-");
+    } else {
+        lv_snprintf(next, sizeof(next), "%d", (int)((x10 + 5) / 10));
+    }
+    if (strcmp(next, number_buf) != 0) {
+        strcpy(number_buf, next);
+        lv_label_set_text_static(number, number_buf);
+        place_centered(number, &PPF_NarrowThin_64, number_buf, 72);
+    }
+}
+
+static void glide_step(void *obj, int32_t x10) {
+    ARG_UNUSED(obj);
+    float before = fill_of(shown_x10);
+    shown_x10 = x10;
+    if (fill_of(x10) != before) {
+        invalidate_sector(before, fill_of(x10));
+    }
+    show_number(x10);
+}
+
+static void glide_to(int target) {
+    int32_t to = target < 0 ? 0 : target * 10;
+    lv_anim_delete(dial, glide_step);
+    if (to == shown_x10) {
+        show_number(to);
+        return;
+    }
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, dial);
+    lv_anim_set_exec_cb(&a, glide_step);
+    lv_anim_set_values(&a, shown_x10, to);
+    lv_anim_set_duration(&a, GLIDE_MS);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
+
 static void update(const struct psptr_status *s, uint32_t changed) {
     const struct psptr_theme *t = psptr_theme();
     lv_color_t accent = psptr_layer_color(s->layer);
@@ -109,13 +187,7 @@ static void update(const struct psptr_status *s, uint32_t changed) {
 
     if (changed & PSPTR_CHANGED_WPM) {
         wpm = s->wpm;
-        if (wpm < 0) {
-            lv_snprintf(number_buf, sizeof(number_buf), "-");
-        } else {
-            lv_snprintf(number_buf, sizeof(number_buf), "%d", wpm);
-        }
-        lv_label_set_text_static(number, number_buf);
-        place_centered(number, &PPF_NarrowThin_64, number_buf, 72);
+        glide_to(wpm);
     }
 
     if (changed & PSPTR_CHANGED_LAYER) {
@@ -133,8 +205,8 @@ static void update(const struct psptr_status *s, uint32_t changed) {
         lv_obj_set_style_bg_color(pill, accent, 0);
     }
 
-    if (changed & (PSPTR_CHANGED_WPM | PSPTR_CHANGED_LAYER)) {
-        lv_obj_invalidate(dial);
+    if (changed & PSPTR_CHANGED_LAYER) {
+        lv_obj_invalidate(dial); /* arc and lit ticks take the layer colour */
     }
 
     if (changed & (PSPTR_CHANGED_LAYER | PSPTR_CHANGED_MODS)) {

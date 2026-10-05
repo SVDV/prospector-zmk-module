@@ -2,6 +2,10 @@
  * View 1: the original layer roller, refined.
  * Full-width roller (FRAC is 32 px per letter, so 8-letter names need 256 px), mods in a row in
  * home-row order, labelled L/R battery cells and the host glyph between them.
+ *
+ * The roller is five short labels rather than lv_roller: in infinite mode lv_roller keeps every
+ * layer name repeated 7 times in one label and re-measures it on each redraw and style change,
+ * which made a layer change cost 40-80% CPU. The rows sit where lv_roller drew them.
  */
 
 #include <ctype.h>
@@ -19,6 +23,10 @@
 #define ROLLER_H 140
 #define ROLLER_PAD_LEFT 14
 #define FADE_H 40
+#define ROW_PITCH 51 /* FRAC_Thin_48 line height: lv_roller steps rows by the unselected font */
+#define ROW_MID 45   /* top of the middle row: ROLLER_H / 2 - ROW_PITCH / 2 */
+#define ROWS 5       /* two above, the current layer, two below */
+#define SLIDE_MS 80
 #define MODS_Y 150
 #define MODS_X 14
 #define MODS_PITCH 55
@@ -26,8 +34,10 @@
 #define CELL_H 36
 #define CELL_W 94
 
-static char options[512];
-static lv_obj_t *roller;
+static char names[ZMK_KEYMAP_LAYERS_LEN][24];
+static lv_obj_t *rows_box;
+static lv_obj_t *rows[ROWS];
+static int shown_layer = -1;
 static lv_obj_t *mods[4];
 static struct psptr_host host;
 
@@ -55,31 +65,92 @@ const char *psptr_layer_name(uint8_t layer_index) {
     return buf;
 }
 
-static void build_options(void) {
-    char *p = options, *end = options + sizeof(options) - 1;
-    for (int i = 0; i < ZMK_KEYMAP_LAYERS_LEN && p < end; i++) {
-        if (i > 0) {
-            *p++ = '\n';
-        }
+static void build_names(void) {
+    for (int i = 0; i < ZMK_KEYMAP_LAYERS_LEN; i++) {
         const char *name = psptr_layer_name(i);
-        while (*name && p < end) {
-            *p++ = IS_ENABLED(CONFIG_PROSPECTOR_LAYER_ROLLER_ALL_CAPS) ? toupper((unsigned char)*name)
-                                                                      : *name;
-            name++;
+        size_t n = 0;
+        for (; name[n] && n < sizeof(names[i]) - 1; n++) {
+            names[i][n] = IS_ENABLED(CONFIG_PROSPECTOR_LAYER_ROLLER_ALL_CAPS)
+                              ? toupper((unsigned char)name[n])
+                              : name[n];
         }
+        names[i][n] = '\0';
     }
-    *p = '\0';
+}
+
+/* Row k (-2..2) top relative to the box. The middle row uses FRAC Regular, whose line box is
+ * 1 px taller, so lv_roller draws it 1 px higher. */
+static int32_t row_top(int k) { return ROW_MID + k * ROW_PITCH - (k == 0 ? 1 : 0); }
+
+static void set_rows_offset(void *obj, int32_t offset) {
+    ARG_UNUSED(obj);
+    for (int k = 0; k < ROWS; k++) {
+        lv_obj_set_y(rows[k], row_top(k - ROWS / 2) + offset);
+    }
+}
+
+static void show_layer(int layer) {
+    const int n = ZMK_KEYMAP_LAYERS_LEN;
+    for (int k = 0; k < ROWS; k++) {
+        int idx = ((layer + k - ROWS / 2) % n + n) % n;
+        lv_label_set_text_static(rows[k], names[idx]);
+    }
+
+    /* slide one row from the side we came from, the shorter way round the ring */
+    int dir = 0;
+    if (shown_layer >= 0 && shown_layer != layer) {
+        int fwd = ((layer - shown_layer) % n + n) % n;
+        dir = fwd <= n / 2 ? 1 : -1;
+    }
+    shown_layer = layer;
+
+    lv_anim_delete(rows_box, set_rows_offset);
+    if (dir == 0) {
+        set_rows_offset(rows_box, 0);
+        return;
+    }
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, rows_box);
+    lv_anim_set_exec_cb(&a, set_rows_offset);
+    lv_anim_set_values(&a, dir * ROW_PITCH, 0);
+    lv_anim_set_duration(&a, SLIDE_MS);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
+
+/* Edge fades drawn as 2 px bands of solid colour with stepped opacity. An LVGL gradient with
+ * changing opacity (bg_main_opa/bg_grad_opa) left noise when the area was split across render
+ * buffers during the slide. */
+#define FADE_BAND 2
+
+static void fade_draw(lv_event_t *e) {
+    lv_obj_t *obj = lv_event_get_target_obj(e);
+    bool to_bottom = (bool)(uintptr_t)lv_event_get_user_data(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_coords(obj, &a);
+    int32_t h = lv_area_get_height(&a);
+
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = psptr_theme()->bg;
+    for (int32_t y = 0; y < h; y += FADE_BAND) {
+        int32_t mid = y + FADE_BAND / 2;
+        int32_t opa = to_bottom ? mid * 255 / h : 255 - mid * 255 / h;
+        if (opa <= 0) {
+            continue;
+        }
+        d.bg_opa = (lv_opa_t)LV_MIN(opa, 255);
+        lv_area_t band = {a.x1, a.y1 + y, a.x2, LV_MIN(a.y1 + y + FADE_BAND - 1, a.y2)};
+        lv_draw_rect(layer, &d, &band);
+    }
 }
 
 static lv_obj_t *fade(lv_obj_t *parent, lv_align_t align, bool to_bottom) {
     lv_obj_t *obj = psptr_obj(parent, 0, 0, LV_PCT(100), FADE_H);
     lv_obj_align(obj, align, 0, 0);
-    lv_obj_set_style_bg_color(obj, psptr_theme()->bg, 0);
-    lv_obj_set_style_bg_grad_color(obj, psptr_theme()->bg, 0);
-    lv_obj_set_style_bg_grad_dir(obj, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_main_opa(obj, to_bottom ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_grad_opa(obj, to_bottom ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_add_event_cb(obj, fade_draw, LV_EVENT_DRAW_MAIN, (void *)(uintptr_t)to_bottom);
     return obj;
 }
 
@@ -88,8 +159,8 @@ static void update(const struct psptr_status *s, uint32_t changed) {
     lv_color_t accent = psptr_layer_color(s->layer);
 
     if (changed & PSPTR_CHANGED_LAYER) {
-        lv_roller_set_selected(roller, s->layer, LV_ANIM_ON);
-        lv_obj_set_style_text_color(roller, accent, LV_PART_SELECTED);
+        lv_obj_set_style_text_color(rows[ROWS / 2], accent, 0);
+        show_layer(s->layer);
     }
 
     if (changed & (PSPTR_CHANGED_LAYER | PSPTR_CHANGED_MODS)) {
@@ -133,25 +204,17 @@ static void update(const struct psptr_status *s, uint32_t changed) {
 void psptr_view_refined_create(lv_obj_t *page) {
     const struct psptr_theme *t = psptr_theme();
 
-    build_options();
-    roller = lv_roller_create(page);
-    lv_obj_remove_flag(roller, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_pos(roller, 0, ROLLER_Y);
-    lv_obj_set_size(roller, PSPTR_W, ROLLER_H);
-    lv_obj_set_style_bg_color(roller, t->bg, 0);
-    lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(roller, 0, 0);
-    lv_obj_set_style_pad_all(roller, 0, 0);
-    lv_obj_set_style_pad_left(roller, ROLLER_PAD_LEFT, 0);
-    lv_obj_set_style_text_font(roller, &FRAC_Thin_48, LV_PART_MAIN);
-    lv_obj_set_style_text_color(roller, t->dim, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(roller, LV_OPA_TRANSP, LV_PART_SELECTED);
-    lv_obj_set_style_text_font(roller, &FRAC_Regular_48, LV_PART_SELECTED);
-    lv_obj_set_style_anim_duration(roller, 50, 0);
-    /* after the fonts: infinite mode sizes its repeated pages from the current line height */
-    lv_roller_set_options(roller, options, LV_ROLLER_MODE_INFINITE);
-    fade(roller, LV_ALIGN_TOP_MID, false);
-    fade(roller, LV_ALIGN_BOTTOM_MID, true);
+    build_names();
+    rows_box = psptr_obj(page, 0, ROLLER_Y, PSPTR_W, ROLLER_H); /* clips the rows to the roller */
+    for (int k = 0; k < ROWS; k++) {
+        bool middle = k == ROWS / 2;
+        rows[k] = psptr_label(rows_box, middle ? &FRAC_Regular_48 : &FRAC_Thin_48,
+                              middle ? t->text : t->dim);
+        lv_obj_set_x(rows[k], ROLLER_PAD_LEFT);
+    }
+    set_rows_offset(rows_box, 0);
+    fade(rows_box, LV_ALIGN_TOP_MID, false);
+    fade(rows_box, LV_ALIGN_BOTTOM_MID, true);
 
     for (int i = 0; i < 4; i++) {
         mods[i] = psptr_label(page, &Symbols_Semibold_32, t->mod_off);

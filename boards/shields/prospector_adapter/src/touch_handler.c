@@ -4,7 +4,7 @@
  * The CST816S reports gestures in the panel's own portrait orientation, but the display is
  * rotated 270° (or 90° with CONFIG_PROSPECTOR_ROTATE_DISPLAY_180). With the default rotation a
  * finger moving right on the landscape screen arrives as SWIPE_UP, left as SWIPE_DOWN, up as
- * SWIPE_LEFT and down as SWIPE_RIGHT.
+ * SWIPE_RIGHT and down as SWIPE_LEFT (verified on the device).
  */
 
 #include <zephyr/kernel.h>
@@ -43,10 +43,10 @@ static enum finger finger_direction(uint16_t code) {
         f = FINGER_LEFT;
         break;
     case GESTURE_SWIPE_LEFT:
-        f = FINGER_UP;
+        f = FINGER_DOWN;
         break;
     case GESTURE_SWIPE_RIGHT:
-        f = FINGER_DOWN;
+        f = FINGER_UP;
         break;
     default:
         return FINGER_NONE;

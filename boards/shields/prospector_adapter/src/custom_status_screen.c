@@ -23,5 +23,13 @@ lv_obj_t *zmk_display_status_screen() {
     psptr_pager_finish();
 
     psptr_status_start();
+
+#if IS_ENABLED(CONFIG_PROSPECTOR_PERF_OVERLAY)
+    /* LVGL puts the monitor bottom-right, where the panel's rounded corner hides it */
+    lv_obj_t *sys = lv_layer_sys();
+    for (uint32_t i = 0; i < lv_obj_get_child_count(sys); i++) {
+        lv_obj_align(lv_obj_get_child(sys, i), LV_ALIGN_TOP_MID, 0, 0);
+    }
+#endif
     return screen;
 }

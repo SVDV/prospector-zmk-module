@@ -1,7 +1,7 @@
 /*
  * View 2: live map.
  * Draws the keyboard from its zmk,physical-layout. Each key keeps a session press count shown as
- * heat (8 steps), presses flash, held keys light in the layer colour, and a balance bar splits the
+ * heat (8 steps), pressed keys light up, held keys use the layer colour, and a balance bar splits the
  * session's presses between the halves. The session restarts on the first press after
  * CONFIG_PROSPECTOR_LIVE_MAP_IDLE_RESET_MIN idle minutes, and on reboot.
  */
@@ -33,8 +33,10 @@
 #define KEY_GAP 2
 #define KEY_RADIUS 3
 #define HEAT_STEPS 7 /* 8 levels: 0..7 */
-#define FLASH_MS 260
-#define FLASH_TICK_MS 33
+#define LIT_MS 150      /* a tap stays lit at least this long so it's visible */
+#define LIT_TICK_MS 50  /* how often to check for taps whose lit time ended */
+#define BALANCE_MS 500  /* the L/R share and the total update at most twice a second */
+#define HEAT_MS 2000    /* heat is a slow statistic: recolour keys every 2 s at most */
 #define BAL_X 20
 #define BAL_W 240
 #define BAL_Y 190
@@ -87,9 +89,13 @@ static struct psptr_status status;
 static uint32_t shown_counts[MAX_KEYS];
 static uint8_t heat[MAX_KEYS];
 static uint64_t shown_pressed;
-static uint64_t flashing;
+static uint64_t lit;          /* keys shown lit because of a recent press */
+static bool balance_dirty;
+static bool heat_dirty;
+static lv_timer_t *balance_timer;
+static lv_timer_t *heat_timer;
 static uint32_t shown_session;
-static lv_timer_t *flash_timer;
+static lv_timer_t *lit_timer;
 
 /* ---------- geometry from the physical layout ---------- */
 
@@ -177,16 +183,20 @@ static void find_caps_word_keys(void) {
 
 /* ---------- drawing ---------- */
 
-static lv_color_t key_color(size_t i, uint32_t now) {
+static lv_color_t key_color(size_t i) {
     const struct psptr_theme *t = psptr_theme();
-    lv_color_t c = lv_color_mix(t->heat, t->key, (uint8_t)(heat[i] * 217 / HEAT_STEPS));
+    /* thermal ramp; the cooler steps are blended toward the idle key colour so rare keys stay quiet */
+    lv_color_t c = t->key;
+    if (heat[i] > 0) {
+        uint8_t s = heat[i] - 1; /* 0..6 */
+        c = lv_color_mix(t->heat[s], t->key, (uint8_t)(110 + s * 145 / (HEAT_STEPS - 1)));
+    }
     bool held = (shown_pressed & BIT64(i)) || (status.caps_word && (caps_word_keys & BIT64(i)));
     if (held) {
         c = psptr_layer_color(status.layer);
     }
-    uint32_t age = now - press_ms[i];
-    if ((flashing & BIT64(i)) && age < FLASH_MS) {
-        c = lv_color_mix(t->text, c, (uint8_t)(255 * (FLASH_MS - age) / FLASH_MS));
+    if (lit & BIT64(i)) {
+        c = lv_color_mix(t->text, c, 200);
     }
     return c;
 }
@@ -259,7 +269,6 @@ static void map_draw(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     lv_area_t origin;
     lv_obj_get_coords(map, &origin);
-    uint32_t now = k_uptime_get_32();
 
     for (size_t i = 0; i < key_count; i++) {
         const struct key_geo *g = &geo[i];
@@ -269,7 +278,7 @@ static void map_draw(lv_event_t *e) {
             continue;
         }
         bool live = connected(i);
-        lv_color_t color = live ? key_color(i, now) : psptr_theme()->red_dim;
+        lv_color_t color = live ? key_color(i) : psptr_theme()->red_dim;
         float cx = origin.x1 + g->cx, cy = origin.y1 + g->cy;
 
         if (fabsf(g->rad) > 0.001f) {
@@ -310,21 +319,22 @@ static void invalidate_keys(uint64_t mask) {
     }
 }
 
-/* ---------- flash timer ---------- */
+/* ---------- lit keys ---------- */
 
-static void flash_tick(lv_timer_t *timer) {
+/* Redraw only the keys whose lit time just ended; held keys then show the layer colour. */
+static void lit_tick(lv_timer_t *timer) {
     ARG_UNUSED(timer);
     uint32_t now = k_uptime_get_32();
     uint64_t ended = 0;
     for (size_t i = 0; i < key_count; i++) {
-        if ((flashing & BIT64(i)) && now - press_ms[i] >= FLASH_MS) {
+        if ((lit & BIT64(i)) && now - press_ms[i] >= LIT_MS) {
             ended |= BIT64(i);
         }
     }
-    invalidate_keys(flashing); /* ended keys get one last redraw without the flash */
-    flashing &= ~ended;
-    if (!flashing) {
-        lv_timer_pause(flash_timer);
+    lit &= ~ended;
+    invalidate_keys(ended);
+    if (!lit) {
+        lv_timer_pause(lit_timer);
     }
 }
 
@@ -368,6 +378,41 @@ static void update_balance(void) {
     lv_obj_set_width(bal_left_bar, LV_MAX(split - BAL_X - 1, 0));
     lv_obj_set_x(bal_right_bar, split + 1);
     lv_obj_set_width(bal_right_bar, LV_MAX(BAL_X + BAL_W - split - 1, 0));
+}
+
+/* heat = (count / max)^0.7 in 8 steps, recomputed in batches so a burst of typing repaints once.
+ * Only keys whose step changed are repainted: a full-map redraw costs 40-60 ms on the device. */
+static void recompute_heat(void) {
+    uint32_t max = 1;
+    for (size_t i = 0; i < key_count; i++) {
+        max = MAX(max, shown_counts[i]);
+    }
+    uint64_t changed = 0;
+    for (size_t i = 0; i < key_count; i++) {
+        uint32_t c = shown_counts[i];
+        uint8_t step = c ? (uint8_t)lroundf(powf((float)c / max, 0.7f) * HEAT_STEPS) : 0;
+        if (step != heat[i]) {
+            heat[i] = step;
+            changed |= BIT64(i);
+        }
+    }
+    invalidate_keys(changed & ~lit); /* lit keys pick up their new heat when they dim */
+}
+
+static void heat_tick(lv_timer_t *timer) {
+    ARG_UNUSED(timer);
+    if (heat_dirty && map) {
+        heat_dirty = false;
+        recompute_heat();
+    }
+}
+
+static void balance_tick(lv_timer_t *timer) {
+    ARG_UNUSED(timer);
+    if (balance_dirty) {
+        balance_dirty = false;
+        update_balance();
+    }
 }
 
 static void update_batteries(void) {
@@ -455,33 +500,24 @@ static void keys_changed(struct k_work *work) {
         shown_session = snap_session;
     }
 
-    uint32_t max = 1;
-    for (size_t i = 0; i < key_count; i++) {
-        max = MAX(max, snap[i]);
-    }
-
-    uint64_t dirty = now_pressed ^ shown_pressed;
     uint64_t new_presses = 0;
     for (size_t i = 0; i < key_count; i++) {
         if (snap[i] > shown_counts[i]) {
             new_presses |= BIT64(i);
         }
-        /* heat = (count / max)^0.7 in 8 steps; a key repaints only when its step changes */
-        uint8_t step = snap[i] ? (uint8_t)lroundf(powf((float)snap[i] / max, 0.7f) * HEAT_STEPS) : 0;
-        if (step != heat[i]) {
-            heat[i] = step;
-            dirty |= BIT64(i);
-        }
     }
+    /* a press or release only repaints that key; a lit key looks the same either way */
+    uint64_t dirty = (now_pressed ^ shown_pressed) & ~lit;
     memcpy(shown_counts, snap, sizeof(shown_counts));
     shown_pressed = now_pressed;
 
-    flashing |= new_presses;
+    lit |= new_presses;
     invalidate_keys(dirty | new_presses);
-    if (flashing) {
-        lv_timer_resume(flash_timer);
+    if (lit) {
+        lv_timer_resume(lit_timer);
     }
-    update_balance();
+    balance_dirty = true;
+    heat_dirty = true;
 }
 
 /* ---------- status ---------- */
@@ -556,10 +592,14 @@ void psptr_view_live_map_create(lv_obj_t *page) {
         batt[i].text = psptr_label(page, f, t->text);
     }
 
-    flash_timer = lv_timer_create(flash_tick, FLASH_TICK_MS, NULL);
-    lv_timer_pause(flash_timer);
+    lit_timer = lv_timer_create(lit_tick, LIT_TICK_MS, NULL);
+    lv_timer_pause(lit_timer);
+    balance_timer = lv_timer_create(balance_tick, BALANCE_MS, NULL);
+    heat_timer = lv_timer_create(heat_tick, HEAT_MS, NULL);
 
     psptr_status_subscribe(update);
     started = true;
     keys_changed(NULL);
+    balance_tick(NULL);
+    heat_tick(NULL);
 }
