@@ -15,6 +15,7 @@ struct psptr_theme {
     lv_color_t red_dim;
     lv_color_t low;     /* battery under 20% */
     lv_color_t heat[7]; /* live map heat ramp, coolest to hottest (steps 1..7; 0 is .key) */
+    lv_color_t cat;     /* the kaomoji cat */
     lv_color_t bal_left;
     lv_color_t bal_right;
     lv_color_t bar_from, bar_to;         /* battery fill gradient */

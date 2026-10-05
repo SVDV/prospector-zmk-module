@@ -20,6 +20,9 @@ lv_obj_t *zmk_display_status_screen() {
 #if IS_ENABLED(CONFIG_PROSPECTOR_VIEW_GAUGE)
     psptr_view_gauge_create(psptr_pager_add_page());
 #endif
+#if IS_ENABLED(CONFIG_PROSPECTOR_VIEW_CAT)
+    psptr_view_cat_create(psptr_pager_add_page());
+#endif
     psptr_pager_finish();
 
     psptr_status_start();

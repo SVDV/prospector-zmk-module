@@ -18,6 +18,7 @@ static const struct psptr_theme theme = {
     .low = C(0xfab387),
     /* fire, from the palette: lavender, mauve, red, maroon, peach, yellow, rosewater */
     .heat = {C(0xb4befe), C(0xcba6f7), C(0xf38ba8), C(0xeba0ac), C(0xfab387), C(0xf9e2af), C(0xf5e0dc)},
+    .cat = C(0xf5e0dc), /* rosewater */
     .bal_left = C(0x89b4fa),
     .bal_right = C(0xcba6f7),
     .bar_from = C(0xa6e3a1),
@@ -46,6 +47,7 @@ static const struct psptr_theme theme = {
     .low = C(0xffb802),
     /* fire (inferno): purple, plum, crimson, red, orange, amber, yellow. Brighter = pressed more */
     .heat = {C(0x6a176e), C(0x932667), C(0xbc3754), C(0xdd513a), C(0xf37819), C(0xfca50a), C(0xf6d746)},
+    .cat = C(0xffffff),
     .bal_left = C(0xf0f0f0),
     .bal_right = C(0x7a7a7a),
     .bar_from = C(0x909090),

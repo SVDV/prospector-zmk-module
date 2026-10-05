@@ -154,6 +154,57 @@ void psptr_battery_icon_set(struct psptr_battery_icon *icon, uint8_t level, bool
     psptr_show(icon->nub, visible);
 }
 
+/* ---------- battery pair ---------- */
+
+#define PAIR_Y 210
+#define PAIR_ICON_Y 213
+#define PAIR_LEFT_X 24
+#define PAIR_RIGHT_X 256
+#define PAIR_GAP 6
+
+void psptr_battery_pair_create(struct psptr_battery_pair *pair, lv_obj_t *parent) {
+    const struct psptr_theme *t = psptr_theme();
+    for (int i = 0; i < 2; i++) {
+        psptr_battery_icon_create(&pair->side[i].icon, parent,
+                                  i == 0 ? PAIR_LEFT_X : PAIR_RIGHT_X - PSPTR_BATTERY_ICON_W, PAIR_ICON_Y);
+        pair->side[i].cross = psptr_label(parent, &lv_font_montserrat_20, t->red);
+        lv_label_set_text_static(pair->side[i].cross, LV_SYMBOL_CLOSE);
+        pair->side[i].text = psptr_label(parent, &FoundryGridnikMedium_20, t->text);
+    }
+}
+
+void psptr_battery_pair_set(struct psptr_battery_pair *pair, const struct psptr_status *s) {
+    const struct psptr_theme *t = psptr_theme();
+    for (int i = 0; i < 2; i++) {
+        bool present = i < s->peripheral_count;
+        bool live = present && s->peripherals[i].connected;
+        uint8_t level = s->peripherals[i].level;
+        bool low = level < PSPTR_BATTERY_LOW;
+        bool left = i == 0;
+
+        psptr_battery_icon_set(&pair->side[i].icon, level, live);
+        psptr_show(pair->side[i].cross, present && !live);
+        psptr_show(pair->side[i].text, present);
+        if (!present) {
+            continue;
+        }
+        if (live) {
+            lv_snprintf(pair->side[i].buf, sizeof(pair->side[i].buf), "%d%%", level);
+        } else {
+            strcpy(pair->side[i].buf, "NO LINK");
+        }
+        lv_label_set_text_static(pair->side[i].text, pair->side[i].buf);
+        lv_obj_set_style_text_color(pair->side[i].text, !live ? t->red : low ? t->low : t->text, 0);
+
+        int32_t icon_w = live ? PSPTR_BATTERY_ICON_W : psptr_text_width(&lv_font_montserrat_20, LV_SYMBOL_CLOSE);
+        int32_t icon_x = left ? PAIR_LEFT_X : PAIR_RIGHT_X - icon_w;
+        int32_t text_w = psptr_text_width(&FoundryGridnikMedium_20, pair->side[i].buf);
+        lv_obj_set_pos(pair->side[i].cross, icon_x, PAIR_Y);
+        lv_obj_set_pos(pair->side[i].text, left ? icon_x + icon_w + PAIR_GAP : icon_x - PAIR_GAP - text_w,
+                       PAIR_Y - 2);
+    }
+}
+
 /* ---------- host ---------- */
 
 void psptr_host_create(struct psptr_host *host, lv_obj_t *parent, lv_color_t color) {

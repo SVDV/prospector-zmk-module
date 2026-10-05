@@ -3,6 +3,8 @@
 #include <lvgl.h>
 #include <zmk/endpoints_types.h>
 
+#include <status.h>
+
 /* Screen size after the 270° rotation. All layouts are designed in these pixels. */
 #define PSPTR_W 280
 #define PSPTR_H 240
@@ -41,6 +43,19 @@ struct psptr_battery_icon {
 void psptr_battery_icon_create(struct psptr_battery_icon *icon, lv_obj_t *parent, int32_t x,
                                int32_t y);
 void psptr_battery_icon_set(struct psptr_battery_icon *icon, uint8_t level, bool visible);
+
+/* Bottom battery row: icon + percentage for each half, left and right, with ✕ NO LINK when a
+ * half is disconnected. Used by the live map and the cat. */
+struct psptr_battery_pair {
+    struct {
+        struct psptr_battery_icon icon;
+        lv_obj_t *cross;
+        lv_obj_t *text;
+        char buf[12];
+    } side[2];
+};
+void psptr_battery_pair_create(struct psptr_battery_pair *pair, lv_obj_t *parent);
+void psptr_battery_pair_set(struct psptr_battery_pair *pair, const struct psptr_status *s);
 
 /* Host indicator: USB glyph, or Bluetooth glyph plus profile number. */
 enum psptr_align { PSPTR_ALIGN_LEFT, PSPTR_ALIGN_CENTER, PSPTR_ALIGN_RIGHT };

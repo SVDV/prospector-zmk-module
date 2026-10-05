@@ -20,6 +20,7 @@
 #include <zmk/physical_layouts.h>
 
 #include <fonts.h>
+#include <layout.h>
 #include <status.h>
 #include <theme.h>
 #include <ui.h>
@@ -54,7 +55,6 @@ struct key_geo {
 
 static struct key_geo geo[MAX_KEYS];
 static size_t key_count;
-static bool left_half[MAX_KEYS];
 static uint64_t caps_word_keys;
 
 /* ---------- session data, written by the event listener ---------- */
@@ -76,12 +76,7 @@ static lv_obj_t *no_layout;
 static lv_obj_t *bal_left_label, *bal_right_label, *bal_left_pct, *bal_right_pct, *total;
 static lv_obj_t *bal_left_bar, *bal_right_bar;
 static struct psptr_host host;
-static struct {
-    struct psptr_battery_icon icon;
-    lv_obj_t *cross;
-    lv_obj_t *text;
-    char buf[12];
-} batt[2];
+static struct psptr_battery_pair batteries;
 static char pct_buf[2][12];
 static char total_buf[16];
 
@@ -143,7 +138,6 @@ static bool build_geometry(void) {
     float u = MIN(MAP_W / (x1 - x0), MAP_H / (y1 - y0)); /* px per centi-key-unit */
     float ox = (MAP_W - (x1 - x0) * u) / 2 - x0 * u;
     float oy = (MAP_H - (y1 - y0) * u) / 2 - y0 * u;
-    float mid = (x0 + x1) / 2;
 
     for (size_t i = 0; i < key_count; i++) {
         const struct zmk_key_physical_attrs *k = &layout->keys[i];
@@ -165,7 +159,6 @@ static bool build_geometry(void) {
         g->bounds.y1 = (int32_t)floorf(g->cy - eyt);
         g->bounds.x2 = (int32_t)ceilf(g->cx + ext);
         g->bounds.y2 = (int32_t)ceilf(g->cy + eyt);
-        left_half[i] = (c[0][0] + c[3][0]) / 2 < mid;
     }
     return true;
 }
@@ -206,7 +199,7 @@ static bool connected(size_t i) {
         return true;
     }
     /* one peripheral (a unibody board) covers every key; two map to the left/right halves */
-    uint8_t side = (status.peripheral_count == 1 || left_half[i]) ? 0 : 1;
+    uint8_t side = (status.peripheral_count == 1 || psptr_layout_is_left(i)) ? 0 : 1;
     return status.peripherals[side].connected;
 }
 
@@ -358,7 +351,7 @@ static void update_balance(void) {
     uint32_t left = 0, all = 0;
     for (size_t i = 0; i < key_count; i++) {
         all += shown_counts[i];
-        left += left_half[i] ? shown_counts[i] : 0;
+        left += psptr_layout_is_left(i) ? shown_counts[i] : 0;
     }
     int lp = all ? (int)(((uint64_t)left * 100 + all / 2) / all) : 50;
     lp = CLAMP(lp, 0, 100);
@@ -415,37 +408,6 @@ static void balance_tick(lv_timer_t *timer) {
     }
 }
 
-static void update_batteries(void) {
-    const struct psptr_theme *t = psptr_theme();
-    const int32_t by = 210, gap = 6;
-    for (int i = 0; i < 2; i++) {
-        bool present = i < status.peripheral_count;
-        bool live = present && status.peripherals[i].connected;
-        uint8_t level = status.peripherals[i].level;
-        bool low = level < PSPTR_BATTERY_LOW;
-        bool left = i == 0;
-
-        psptr_battery_icon_set(&batt[i].icon, level, live);
-        psptr_show(batt[i].cross, present && !live);
-        psptr_show(batt[i].text, present);
-        if (!present) {
-            continue;
-        }
-        if (live) {
-            lv_snprintf(batt[i].buf, sizeof(batt[i].buf), "%d%%", level);
-        } else {
-            strcpy(batt[i].buf, "NO LINK");
-        }
-        lv_label_set_text_static(batt[i].text, batt[i].buf);
-        lv_obj_set_style_text_color(batt[i].text, !live ? t->red : low ? t->low : t->text, 0);
-
-        int32_t icon_w = live ? PSPTR_BATTERY_ICON_W : psptr_text_width(&lv_font_montserrat_20, LV_SYMBOL_CLOSE);
-        int32_t icon_x = left ? 24 : 256 - icon_w;
-        int32_t text_w = psptr_text_width(&FoundryGridnikMedium_20, batt[i].buf);
-        lv_obj_set_pos(batt[i].cross, icon_x, by);
-        lv_obj_set_pos(batt[i].text, left ? icon_x + icon_w + gap : icon_x - gap - text_w, by - 2);
-    }
-}
 
 /* ---------- key events ---------- */
 
@@ -541,7 +503,7 @@ static void update(const struct psptr_status *s, uint32_t changed) {
         invalidate_keys(caps_word_keys);
     }
     if ((changed & PSPTR_CHANGED_PERIPHERALS) || links_changed) {
-        update_batteries();
+        psptr_battery_pair_set(&batteries, s);
     }
     if (changed & PSPTR_CHANGED_ENDPOINT) {
         psptr_host_set(&host, s->endpoint, 260, 18, PSPTR_ALIGN_RIGHT);
@@ -585,12 +547,7 @@ void psptr_view_live_map_create(lv_obj_t *page) {
     lv_obj_t *tick = psptr_rect(page, PSPTR_W / 2, BAL_Y - 4, 1, 14, 0, t->text);
     lv_obj_set_style_bg_opa(tick, 140, 0);
 
-    for (int i = 0; i < 2; i++) {
-        psptr_battery_icon_create(&batt[i].icon, page, i == 0 ? 24 : 256 - PSPTR_BATTERY_ICON_W, 213);
-        batt[i].cross = psptr_label(page, &lv_font_montserrat_20, t->red);
-        lv_label_set_text_static(batt[i].cross, LV_SYMBOL_CLOSE);
-        batt[i].text = psptr_label(page, f, t->text);
-    }
+    psptr_battery_pair_create(&batteries, page);
 
     lit_timer = lv_timer_create(lit_tick, LIT_TICK_MS, NULL);
     lv_timer_pause(lit_timer);

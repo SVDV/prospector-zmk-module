@@ -67,6 +67,10 @@ config PROSPECTOR_LIVE_MAP_IDLE_RESET_MIN
     range 0 1440
     depends on PROSPECTOR_VIEW_LIVE_MAP
 
+config PROSPECTOR_VIEW_CAT
+    bool "Cat view: a kaomoji cat that faces the half you last pressed, layer name and batteries"
+    default y
+
 config PROSPECTOR_PERF_OVERLAY
     bool "Show LVGL's frame rate and CPU load at the top of the screen (for debugging)"
     select LV_USE_SYSMON
