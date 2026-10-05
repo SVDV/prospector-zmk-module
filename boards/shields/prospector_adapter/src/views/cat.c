@@ -1,6 +1,6 @@
 /*
- * View 4: the kaomoji cat. It faces the half of the keyboard you last pressed a key on, with the
- * active layer's name above it and the battery of each half below.
+ * View 4: the kaomoji cat. It turns its head towards the half of the keyboard you last pressed a
+ * key on, with the active layer's name above it and the battery of each half below.
  */
 
 #include <zephyr/kernel.h>
@@ -17,17 +17,23 @@
 #include <ui.h>
 #include <views.h>
 
-LV_IMAGE_DECLARE(psptr_cat_left);
-LV_IMAGE_DECLARE(psptr_cat_right);
+LV_IMAGE_DECLARE(psptr_cat_body);
+extern const lv_image_dsc_t *const psptr_cat_heads[5]; /* facing left ... facing right */
+
+#define HEAD_FACING_LEFT 0
+#define HEAD_FACING_RIGHT 4
+#define TURN_FRAME_MS 30 /* four steps: a ~120 ms turn */
 
 #define TITLE_Y 12
 #define CAT_TOP 52    /* space between the title and the battery row */
 #define CAT_BOTTOM 198
 
 static lv_obj_t *title;
-static lv_obj_t *cat;
+static lv_obj_t *head;
+static lv_timer_t *turn_timer;
 static struct psptr_battery_pair batteries;
-static bool facing_left = true; /* the art faces left as drawn */
+static int head_frame = HEAD_FACING_LEFT; /* the art faces left as drawn */
+static int head_target = HEAD_FACING_LEFT;
 static bool started;
 
 /* Last pressed key position + 1 (0 = none yet). Written by the listener, read on the display thread. */
@@ -39,10 +45,18 @@ static void face_work_cb(struct k_work *work) {
     if (v == 0) {
         return;
     }
-    bool left = psptr_layout_is_left((uint32_t)(v - 1));
-    if (left != facing_left) {
-        facing_left = left;
-        lv_image_set_src(cat, left ? &psptr_cat_left : &psptr_cat_right);
+    head_target = psptr_layout_is_left((uint32_t)(v - 1)) ? HEAD_FACING_LEFT : HEAD_FACING_RIGHT;
+    if (head_target != head_frame) {
+        lv_timer_resume(turn_timer); /* a turn already under way just carries on towards the new side */
+    }
+}
+
+/* One frame of the head turn per tick: squash to a sliver around its centre, widen mirrored. */
+static void turn_tick(lv_timer_t *timer) {
+    head_frame += head_target > head_frame ? 1 : -1;
+    lv_image_set_src(head, psptr_cat_heads[head_frame]);
+    if (head_frame == head_target) {
+        lv_timer_pause(timer);
     }
 }
 
@@ -74,6 +88,17 @@ static void update(const struct psptr_status *s, uint32_t changed) {
     }
 }
 
+/* An A8 image is drawn as a mask filled with the recolour colour. */
+static lv_obj_t *cat_image(lv_obj_t *page, const struct psptr_theme *t,
+                                 const lv_image_dsc_t *src) {
+    lv_obj_t *img = lv_image_create(page);
+    lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
+    lv_image_set_src(img, src);
+    lv_obj_set_style_image_recolor(img, t->cat, 0);
+    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+    return img;
+}
+
 void psptr_view_cat_create(lv_obj_t *page) {
     const struct psptr_theme *t = psptr_theme();
     psptr_layout_init();
@@ -81,14 +106,17 @@ void psptr_view_cat_create(lv_obj_t *page) {
     title = psptr_label(page, &FR_Regular_30, t->text);
     lv_obj_set_y(title, TITLE_Y);
 
-    /* an A8 image is drawn as a mask filled with the recolour colour */
-    cat = lv_image_create(page);
-    lv_obj_remove_flag(cat, LV_OBJ_FLAG_CLICKABLE);
-    lv_image_set_src(cat, &psptr_cat_left);
-    lv_obj_set_style_image_recolor(cat, t->cat, 0);
-    lv_obj_set_style_image_recolor_opa(cat, LV_OPA_COVER, 0);
-    lv_obj_set_pos(cat, (PSPTR_W - psptr_cat_left.header.w) / 2,
-                   CAT_TOP + (CAT_BOTTOM - CAT_TOP - psptr_cat_left.header.h) / 2);
+    /* the head sits directly on the body; together they're centred between title and batteries */
+    const lv_image_dsc_t *head_src = psptr_cat_heads[HEAD_FACING_LEFT];
+    int32_t x = (PSPTR_W - psptr_cat_body.header.w) / 2;
+    int32_t y = CAT_TOP + (CAT_BOTTOM - CAT_TOP - head_src->header.h - psptr_cat_body.header.h) / 2;
+    lv_obj_t *body = cat_image(page, t, &psptr_cat_body);
+    lv_obj_set_pos(body, x, y + head_src->header.h);
+    head = cat_image(page, t, head_src);
+    lv_obj_set_pos(head, x, y);
+
+    turn_timer = lv_timer_create(turn_tick, TURN_FRAME_MS, NULL);
+    lv_timer_pause(turn_timer);
 
     psptr_battery_pair_create(&batteries, page);
     psptr_status_subscribe(update);
