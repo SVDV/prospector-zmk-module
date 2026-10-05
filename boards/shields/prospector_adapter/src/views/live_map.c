@@ -514,6 +514,7 @@ void psptr_view_live_map_create(lv_obj_t *page) {
     const struct psptr_theme *t = psptr_theme();
     const lv_font_t *f = &FoundryGridnikMedium_20;
 
+    psptr_layout_init();
     title = psptr_label(page, &FR_Regular_30, t->text);
     lv_obj_set_pos(title, 20, 12);
     psptr_host_create(&host, page, t->dim);

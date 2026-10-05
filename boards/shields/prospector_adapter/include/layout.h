@@ -9,3 +9,6 @@
  * Without a physical layout every key counts as left.
  */
 bool psptr_layout_is_left(uint32_t position);
+
+/* Build the table now (from view creation) rather than on first use inside a draw callback. */
+void psptr_layout_init(void);

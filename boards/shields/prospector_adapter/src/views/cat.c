@@ -76,6 +76,7 @@ static void update(const struct psptr_status *s, uint32_t changed) {
 
 void psptr_view_cat_create(lv_obj_t *page) {
     const struct psptr_theme *t = psptr_theme();
+    psptr_layout_init();
 
     title = psptr_label(page, &FR_Regular_30, t->text);
     lv_obj_set_y(title, TITLE_Y);

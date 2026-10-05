@@ -39,7 +39,8 @@ static void build(void) {
     const struct zmk_physical_layout *layout = layouts[sel];
     size_t count = MIN(layout->keys_len, MAX_KEYS);
 
-    float x0 = 1e9f, x1 = -1e9f, cx[MAX_KEYS];
+    static float cx[MAX_KEYS]; /* static: may run on the display thread's limited stack */
+    float x0 = 1e9f, x1 = -1e9f;
     for (size_t i = 0; i < count; i++) {
         float c[4][2];
         key_corners(&layout->keys[i], c);
@@ -54,6 +55,12 @@ static void build(void) {
         if (cx[i] < mid) {
             left_keys |= BIT64(i);
         }
+    }
+}
+
+void psptr_layout_init(void) {
+    if (!built) {
+        build();
     }
 }
 

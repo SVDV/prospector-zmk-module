@@ -75,6 +75,7 @@ config PROSPECTOR_PERF_OVERLAY
     bool "Show LVGL's frame rate and CPU load at the top of the screen (for debugging)"
     select LV_USE_SYSMON
     select LV_USE_PERF_MONITOR
+    select SYS_HEAP_RUNTIME_STATS
 
 config PROSPECTOR_VIEW_GAUGE
     bool "WPM gauge view"
