@@ -20,7 +20,6 @@
 #include <zmk/physical_layouts.h>
 
 #include <fonts.h>
-#include <pager.h>
 #include <status.h>
 #include <theme.h>
 #include <ui.h>
@@ -64,11 +63,11 @@ static uint64_t pressed;
 static uint32_t press_ms[MAX_KEYS];
 static int64_t last_press_ms;
 static bool any_press;
+static uint32_t session; /* bumped on every idle reset */
 static bool started;
 
 /* ---------- display state ---------- */
 
-static lv_obj_t *page_obj;
 static lv_obj_t *map;
 static lv_obj_t *title;
 static lv_obj_t *no_layout;
@@ -89,6 +88,7 @@ static uint32_t shown_counts[MAX_KEYS];
 static uint8_t heat[MAX_KEYS];
 static uint64_t shown_pressed;
 static uint64_t flashing;
+static uint32_t shown_session;
 static lv_timer_t *flash_timer;
 
 /* ---------- geometry from the physical layout ---------- */
@@ -192,8 +192,12 @@ static lv_color_t key_color(size_t i, uint32_t now) {
 }
 
 static bool connected(size_t i) {
-    uint8_t side = left_half[i] ? 0 : 1;
-    return side < status.peripheral_count && status.peripherals[side].connected;
+    if (status.peripheral_count == 0) {
+        return true;
+    }
+    /* one peripheral (a unibody board) covers every key; two map to the left/right halves */
+    uint8_t side = (status.peripheral_count == 1 || left_half[i]) ? 0 : 1;
+    return status.peripherals[side].connected;
 }
 
 static void draw_line(lv_layer_t *layer, float x1, float y1, float x2, float y2, int32_t width,
@@ -408,6 +412,7 @@ static int on_position(const zmk_event_t *eh) {
         int64_t now = k_uptime_get();
         if (IDLE_RESET_MS > 0 && any_press && now - last_press_ms > IDLE_RESET_MS) {
             memset(counts, 0, sizeof(counts));
+            session++;
         }
         counts[ev->position]++;
         pressed |= BIT64(ev->position);
@@ -432,10 +437,18 @@ static void keys_changed(struct k_work *work) {
     ARG_UNUSED(work);
     uint32_t snap[MAX_KEYS];
     uint64_t now_pressed;
+    uint32_t snap_session;
     k_spinlock_key_t key = k_spin_lock(&lock);
     memcpy(snap, counts, sizeof(snap));
     now_pressed = pressed;
+    snap_session = session;
     k_spin_unlock(&lock, key);
+
+    if (snap_session != shown_session) {
+        /* new session: compare against zero so its first presses still count as new */
+        memset(shown_counts, 0, sizeof(shown_counts));
+        shown_session = snap_session;
+    }
 
     uint32_t max = 1;
     for (size_t i = 0; i < key_count; i++) {
@@ -460,7 +473,7 @@ static void keys_changed(struct k_work *work) {
 
     flashing |= new_presses;
     invalidate_keys(dirty | new_presses);
-    if (flashing && psptr_pager_is_visible(page_obj)) {
+    if (flashing) {
         lv_timer_resume(flash_timer);
     }
     update_balance();
@@ -470,10 +483,8 @@ static void keys_changed(struct k_work *work) {
 
 static void update(const struct psptr_status *s, uint32_t changed) {
     bool links_changed = false;
-    if (changed & PSPTR_CHANGED_PERIPHERALS) {
-        for (int i = 0; i < PSPTR_MAX_PERIPHERALS; i++) {
-            links_changed |= s->peripherals[i].connected != status.peripherals[i].connected;
-        }
+    for (int i = 0; i < PSPTR_MAX_PERIPHERALS; i++) {
+        links_changed |= s->peripherals[i].connected != status.peripherals[i].connected;
     }
     bool caps_changed = s->caps_word != status.caps_word;
     status = *s;
@@ -488,7 +499,7 @@ static void update(const struct psptr_status *s, uint32_t changed) {
     } else if (map && caps_changed) {
         invalidate_keys(caps_word_keys);
     }
-    if (changed & PSPTR_CHANGED_PERIPHERALS) {
+    if ((changed & PSPTR_CHANGED_PERIPHERALS) || links_changed) {
         update_batteries();
     }
     if (changed & PSPTR_CHANGED_ENDPOINT) {
@@ -499,7 +510,6 @@ static void update(const struct psptr_status *s, uint32_t changed) {
 void psptr_view_live_map_create(lv_obj_t *page) {
     const struct psptr_theme *t = psptr_theme();
     const lv_font_t *f = &FoundryGridnikMedium_20;
-    page_obj = page;
 
     title = psptr_label(page, &FR_Regular_30, t->text);
     lv_obj_set_pos(title, 20, 12);

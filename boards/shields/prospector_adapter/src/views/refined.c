@@ -138,7 +138,6 @@ void psptr_view_refined_create(lv_obj_t *page) {
     lv_obj_remove_flag(roller, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_pos(roller, 0, ROLLER_Y);
     lv_obj_set_size(roller, PSPTR_W, ROLLER_H);
-    lv_roller_set_options(roller, options, LV_ROLLER_MODE_INFINITE);
     lv_obj_set_style_bg_color(roller, t->bg, 0);
     lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(roller, 0, 0);
@@ -149,6 +148,8 @@ void psptr_view_refined_create(lv_obj_t *page) {
     lv_obj_set_style_bg_opa(roller, LV_OPA_TRANSP, LV_PART_SELECTED);
     lv_obj_set_style_text_font(roller, &FRAC_Regular_48, LV_PART_SELECTED);
     lv_obj_set_style_anim_duration(roller, 50, 0);
+    /* after the fonts: infinite mode sizes its repeated pages from the current line height */
+    lv_roller_set_options(roller, options, LV_ROLLER_MODE_INFINITE);
     fade(roller, LV_ALIGN_TOP_MID, false);
     fade(roller, LV_ALIGN_BOTTOM_MID, true);
 

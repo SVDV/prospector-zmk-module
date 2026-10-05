@@ -4,11 +4,16 @@ All the necessary stuff for [Prospector](https://github.com/carrefinho/prospecto
 
 ## Features
 
-- Highest active layer roller
-- Peripheral battery bar
-- Peripheral connection status
-- Caps word indicator
-- Display brightness control via keyboard shortcuts
+Three views you switch between with a swipe:
+
+- **Layer roller**: the highest active layer, held modifiers and caps word, a battery and link indicator per half, and the host (USB or Bluetooth profile)
+- **Live map**: your keyboard drawn from its physical layout, with per-key heat for the current session, held keys, and how your presses split between the halves
+- **WPM gauge**: typing speed on a dial, plus the active layer, modifiers and a battery gauge per half
+
+Also:
+
+- Display brightness control via keyboard shortcuts and touch swipes
+- Original and Catppuccin Mocha colour themes
 
 ## Installation
 
@@ -64,6 +69,32 @@ keymap {
 }
 ```
 
+### Live map
+
+The live map draws the keys from your keyboard's `zmk,physical-layout`, which the dongle needs in its devicetree as the chosen physical layout. A chosen `zmk,matrix-transform` makes ZMK ignore physical layouts, so use this instead in the dongle overlay:
+
+```dts
+#include "my_keyboard_layouts.dtsi"
+
+&my_keyboard_layout {
+    transform = <&default_transform>; // the dongle's own matrix transform
+    kscan = <&mock_kscan>;            // the dongle's mock kscan
+};
+
+/ {
+    chosen {
+        zmk,kscan = &mock_kscan;
+        zmk,physical-layout = &my_keyboard_layout;
+    };
+};
+```
+
+Keys on the left half of the layout count towards the left share. A session starts over after `CONFIG_PROSPECTOR_LIVE_MAP_IDLE_RESET_MIN` minutes without a key press, and whenever the dongle restarts.
+
+### Touch swipes
+
+The touch panel reports swipes in its own portrait orientation, and the module maps them through the display rotation. By default, swiping left or right switches views and swiping up or down changes brightness. Set `CONFIG_PROSPECTOR_SWIPE_VIEWS_VERTICAL=y` to swap the axes.
+
 ### Display Brightness Control
 
 The module includes a `&disp_bri` behavior for controlling display brightness from your keymap:
@@ -99,3 +130,8 @@ CONFIG_PROSPECTOR_DEFAULT_BRIGHTNESS=80
 | `CONFIG_PROSPECTOR_BRIGHTNESS_STEP`               | Brightness adjustment step size for keyboard controls                     | 10 (1-100)   |
 | `CONFIG_PROSPECTOR_ROTATE_DISPLAY_180`            | Rotate the display 180 degrees                                            | n            |
 | `CONFIG_PROSPECTOR_LAYER_ROLLER_ALL_CAPS`         | Convert layer names to all caps                                           | n            |
+| `CONFIG_PROSPECTOR_THEME_CATPPUCCIN_MOCHA`        | Use the Catppuccin Mocha palette instead of the original black theme      | n            |
+| `CONFIG_PROSPECTOR_SWIPE_VIEWS_VERTICAL`          | Swipe up/down to switch views and left/right for brightness               | n            |
+| `CONFIG_PROSPECTOR_VIEW_LIVE_MAP`                 | Include the live map view                                                 | y            |
+| `CONFIG_PROSPECTOR_LIVE_MAP_IDLE_RESET_MIN`       | Idle minutes before the live map starts a new session (0 = only on reboot) | 30           |
+| `CONFIG_PROSPECTOR_VIEW_GAUGE`                    | Include the WPM gauge view (enables `CONFIG_ZMK_WPM`)                     | y            |

@@ -139,8 +139,6 @@ void psptr_pager_step(int dir) {
     show_dots();
 }
 
-bool psptr_pager_is_visible(lv_obj_t *page) { return !lv_obj_has_flag(page, LV_OBJ_FLAG_HIDDEN); }
-
 /* ---------- cross-thread entry ---------- */
 
 static atomic_t posted_dir;

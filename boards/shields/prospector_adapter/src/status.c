@@ -34,7 +34,8 @@ static size_t subscriber_count;
 
 /* Written by event listeners (any thread), read by the display work item. */
 static struct psptr_status pending;
-static uint8_t held_mods; /* HID modifier bits 0xE0..0xE7, from keycode events */
+static uint8_t held_mods;      /* HID modifier bits 0xE0..0xE7 */
+static uint8_t mod_counts[8];  /* presses per modifier, as ZMK's hid.c counts them */
 static K_MUTEX_DEFINE(pending_lock);
 static atomic_t pending_changes;
 static bool started;
@@ -82,8 +83,13 @@ static int on_event(const zmk_event_t *eh) {
         const struct zmk_keycode_state_changed *ev = as_zmk_keycode_state_changed(eh);
         if (ev->usage_page == HID_USAGE_KEY && ev->keycode >= HID_USAGE_KEY_KEYBOARD_LEFTCONTROL &&
             ev->keycode <= HID_USAGE_KEY_KEYBOARD_RIGHT_GUI) {
-            uint8_t bit = BIT(ev->keycode - HID_USAGE_KEY_KEYBOARD_LEFTCONTROL);
-            held_mods = ev->state ? (held_mods | bit) : (held_mods & ~bit);
+            uint8_t m = ev->keycode - HID_USAGE_KEY_KEYBOARD_LEFTCONTROL;
+            if (ev->state) {
+                mod_counts[m]++;
+            } else if (mod_counts[m] > 0) {
+                mod_counts[m]--;
+            }
+            held_mods = mod_counts[m] ? (held_mods | BIT(m)) : (held_mods & ~BIT(m));
             apply_mods_locked();
             what = PSPTR_CHANGED_MODS;
         }
@@ -147,6 +153,9 @@ void psptr_status_start(void) {
     k_mutex_lock(&pending_lock, K_FOREVER);
     pending.layer = zmk_keymap_highest_layer_active();
     held_mods = zmk_hid_get_explicit_mods();
+    for (int m = 0; m < 8; m++) {
+        mod_counts[m] = (held_mods & BIT(m)) ? 1 : 0;
+    }
     apply_mods_locked();
     pending.peripheral_count = PERIPHERALS;
     pending.endpoint = zmk_endpoint_get_selected();

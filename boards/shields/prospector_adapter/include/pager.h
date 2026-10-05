@@ -20,6 +20,3 @@ void psptr_pager_step(int dir);
 
 /* Same as psptr_pager_step(), callable from any thread (e.g. the touch input callback). */
 void psptr_pager_post_step(int dir);
-
-/* True when the page is the one on screen (or sliding in). */
-bool psptr_pager_is_visible(lv_obj_t *page);
