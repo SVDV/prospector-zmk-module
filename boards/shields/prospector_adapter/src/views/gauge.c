@@ -35,7 +35,7 @@ static lv_obj_t *pill;
 static lv_obj_t *pill_label;
 static lv_obj_t *mods[4];
 static struct psptr_host host;
-static char number_buf[8];
+static char number_buf[12];
 
 static struct {
     int32_t x;

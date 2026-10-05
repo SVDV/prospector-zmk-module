@@ -78,9 +78,9 @@ static struct {
     struct psptr_battery_icon icon;
     lv_obj_t *cross;
     lv_obj_t *text;
-    char buf[8];
+    char buf[12];
 } batt[2];
-static char pct_buf[2][8];
+static char pct_buf[2][12];
 static char total_buf[16];
 
 static struct psptr_status status;
@@ -251,6 +251,10 @@ static void draw_rotated_key(lv_layer_t *layer, float cx, float cy, const struct
     }
 }
 
+static bool overlaps(const lv_area_t *a, const lv_area_t *b) {
+    return a->x1 <= b->x2 && b->x1 <= a->x2 && a->y1 <= b->y2 && b->y1 <= a->y2;
+}
+
 static void map_draw(lv_event_t *e) {
     lv_layer_t *layer = lv_event_get_layer(e);
     lv_area_t origin;
@@ -259,9 +263,9 @@ static void map_draw(lv_event_t *e) {
 
     for (size_t i = 0; i < key_count; i++) {
         const struct key_geo *g = &geo[i];
-        lv_area_t b = g->bounds, clip;
+        lv_area_t b = g->bounds;
         lv_area_move(&b, origin.x1, origin.y1);
-        if (!lv_area_intersect(&clip, &b, &layer->_clip_area)) {
+        if (!overlaps(&b, &layer->_clip_area)) {
             continue;
         }
         bool live = connected(i);
@@ -346,7 +350,8 @@ static void update_balance(void) {
         all += shown_counts[i];
         left += left_half[i] ? shown_counts[i] : 0;
     }
-    int lp = all ? (int)((left * 100 + all / 2) / all) : 50;
+    int lp = all ? (int)(((uint64_t)left * 100 + all / 2) / all) : 50;
+    lp = CLAMP(lp, 0, 100);
 
     lv_snprintf(pct_buf[0], sizeof(pct_buf[0]), "%d%%", lp);
     lv_snprintf(pct_buf[1], sizeof(pct_buf[1]), "%d%%", 100 - lp);
