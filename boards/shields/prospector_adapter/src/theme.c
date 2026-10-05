@@ -6,7 +6,7 @@
 #if IS_ENABLED(CONFIG_PROSPECTOR_THEME_CATPPUCCIN_MOCHA)
 
 static const struct psptr_theme theme = {
-    .bg = C(0x1e1e2e),
+    .bg = C(0x11111b), /* crust: the panel lifts dark shades, so base (#1e1e2e) looked too light */
     .text = C(0xcdd6f4),
     .dim = C(0x7f849c),
     .faint = C(0x585b70),
