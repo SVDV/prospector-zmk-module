@@ -90,7 +90,7 @@ static void update(const struct psptr_status *s, uint32_t changed) {
 
 /* An A8 image is drawn as a mask filled with the recolour colour. */
 static lv_obj_t *cat_image(lv_obj_t *page, const struct psptr_theme *t,
-                                 const lv_image_dsc_t *src) {
+                           const lv_image_dsc_t *src) {
     lv_obj_t *img = lv_image_create(page);
     lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
     lv_image_set_src(img, src);
