@@ -1,12 +1,18 @@
 /*
- * Touch handler for CST816S touch panel
- * Handles swipe gestures to control display brightness
+ * Touch handler for the CST816S touch panel: swipes switch views and change brightness.
+ *
+ * The CST816S reports gestures in the panel's own portrait orientation, but the display is
+ * rotated 270° (or 90° with CONFIG_PROSPECTOR_ROTATE_DISPLAY_180). With the default rotation a
+ * finger moving right on the landscape screen arrives as SWIPE_UP, left as SWIPE_DOWN, up as
+ * SWIPE_LEFT and down as SWIPE_RIGHT.
  */
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/input/input.h>
 #include <zephyr/logging/log.h>
+
+#include <pager.h>
 
 LOG_MODULE_REGISTER(touch_handler, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -17,60 +23,109 @@ extern int psptr_set_display_brightness(uint8_t brightness);
 /* Cooldown between swipe actions to prevent rapid-fire adjustments */
 #define SWIPE_COOLDOWN_MS 400
 
-/* Track last swipe time for cooldown */
-static int64_t last_swipe_time;
-
-/* CST816S gesture codes */
-#define GESTURE_SWIPE_UP    0x01
-#define GESTURE_SWIPE_DOWN  0x02
-#define GESTURE_SWIPE_LEFT  0x03
+/* CST816S gesture codes (panel orientation) */
+#define GESTURE_SWIPE_UP 0x01
+#define GESTURE_SWIPE_DOWN 0x02
+#define GESTURE_SWIPE_LEFT 0x03
 #define GESTURE_SWIPE_RIGHT 0x04
 
-static void handle_brightness_swipe(bool increase) {
-    int64_t now = k_uptime_get();
+enum finger { FINGER_NONE, FINGER_LEFT, FINGER_RIGHT, FINGER_UP, FINGER_DOWN };
 
-    /* Check cooldown */
+static int64_t last_swipe_time;
+
+static enum finger finger_direction(uint16_t code) {
+    enum finger f;
+    switch (code) {
+    case GESTURE_SWIPE_UP:
+        f = FINGER_RIGHT;
+        break;
+    case GESTURE_SWIPE_DOWN:
+        f = FINGER_LEFT;
+        break;
+    case GESTURE_SWIPE_LEFT:
+        f = FINGER_UP;
+        break;
+    case GESTURE_SWIPE_RIGHT:
+        f = FINGER_DOWN;
+        break;
+    default:
+        return FINGER_NONE;
+    }
+#if IS_ENABLED(CONFIG_PROSPECTOR_ROTATE_DISPLAY_180)
+    static const enum finger flipped[] = {FINGER_NONE, FINGER_RIGHT, FINGER_LEFT, FINGER_DOWN,
+                                          FINGER_UP};
+    f = flipped[f];
+#endif
+    return f;
+}
+
+static void change_brightness(bool increase) {
+    uint8_t current = psptr_get_display_brightness();
+    uint8_t step = CONFIG_PROSPECTOR_BRIGHTNESS_STEP;
+    uint8_t next = increase ? MIN(current + step, 100) : (current <= step ? 1 : current - step);
+
+    if (next != current) {
+        psptr_set_display_brightness(next);
+        LOG_INF("Touch swipe: brightness %d -> %d", current, next);
+    }
+}
+
+static void handle_swipe(enum finger f) {
+    int64_t now = k_uptime_get();
     if ((now - last_swipe_time) < SWIPE_COOLDOWN_MS) {
         return;
     }
     last_swipe_time = now;
 
-    uint8_t current = psptr_get_display_brightness();
-    uint8_t step = CONFIG_PROSPECTOR_BRIGHTNESS_STEP;
-    uint8_t new_brightness;
-
-    if (increase) {
-        new_brightness = (current + step > 100) ? 100 : current + step;
-    } else {
-        new_brightness = (current <= step) ? 1 : current - step;
+#if IS_ENABLED(CONFIG_PROSPECTOR_SWIPE_VIEWS_VERTICAL)
+    switch (f) {
+    case FINGER_UP:
+        psptr_pager_post_step(1);
+        break;
+    case FINGER_DOWN:
+        psptr_pager_post_step(-1);
+        break;
+    case FINGER_RIGHT:
+        change_brightness(true);
+        break;
+    case FINGER_LEFT:
+        change_brightness(false);
+        break;
+    default:
+        break;
     }
-
-    if (new_brightness != current) {
-        psptr_set_display_brightness(new_brightness);
-        LOG_INF("Touch swipe: brightness %d -> %d", current, new_brightness);
+#else
+    switch (f) {
+    case FINGER_LEFT:
+        psptr_pager_post_step(1);
+        break;
+    case FINGER_RIGHT:
+        psptr_pager_post_step(-1);
+        break;
+    case FINGER_UP:
+        change_brightness(true);
+        break;
+    case FINGER_DOWN:
+        change_brightness(false);
+        break;
+    default:
+        break;
     }
+#endif
 }
 
 static void touch_input_cb(struct input_event *evt, void *user_data) {
     ARG_UNUSED(user_data);
 
-    /* Handle gesture events from CST816S (reported as INPUT_EV_DEVICE) */
+    /* Gesture events from the CST816S are reported as INPUT_EV_DEVICE */
     if (evt->type == INPUT_EV_DEVICE) {
-        switch (evt->code) {
-        case GESTURE_SWIPE_UP:
-            handle_brightness_swipe(true);  /* Swipe up = increase brightness */
-            break;
-        case GESTURE_SWIPE_DOWN:
-            handle_brightness_swipe(false); /* Swipe down = decrease brightness */
-            break;
-        default:
-            /* Ignore other gestures */
-            break;
+        enum finger f = finger_direction(evt->code);
+        if (f != FINGER_NONE) {
+            handle_swipe(f);
         }
     }
 }
 
-/* Register input callback for the touch sensor */
 INPUT_CALLBACK_DEFINE(DEVICE_DT_GET_OR_NULL(DT_NODELABEL(touch_sensor)), touch_input_cb, NULL);
 
 static int touch_handler_init(void) {

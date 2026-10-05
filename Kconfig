@@ -25,5 +25,49 @@ config PROSPECTOR_BRIGHTNESS_STEP
     range 1 50
 
 config PROSPECTOR_TOUCH_ENABLED
-    bool "Enable touch panel for swipe brightness control"
+    bool "Enable touch panel for swipe brightness control and view switching"
     default y
+
+choice PROSPECTOR_THEME
+    prompt "Display colour theme"
+    default PROSPECTOR_THEME_ORIGINAL
+
+config PROSPECTOR_THEME_ORIGINAL
+    bool "Original (black background, grey and white)"
+
+config PROSPECTOR_THEME_CATPPUCCIN_MOCHA
+    bool "Catppuccin Mocha"
+
+endchoice
+
+choice PROSPECTOR_SWIPE_LAYOUT
+    prompt "Which swipe axis switches views"
+    default PROSPECTOR_SWIPE_VIEWS_HORIZONTAL
+    help
+      Directions are as seen on the landscape screen. The other axis changes brightness.
+
+config PROSPECTOR_SWIPE_VIEWS_HORIZONTAL
+    bool "Left/right switches views, up/down changes brightness"
+
+config PROSPECTOR_SWIPE_VIEWS_VERTICAL
+    bool "Up/down switches views, left/right changes brightness"
+
+endchoice
+
+config PROSPECTOR_VIEW_LIVE_MAP
+    bool "Live map view: key heat map and left/right balance"
+    default y
+    help
+      Draws the keyboard from its zmk,physical-layout, which must be included in the dongle's
+      devicetree.
+
+config PROSPECTOR_LIVE_MAP_IDLE_RESET_MIN
+    int "Start a new live map session after this many idle minutes (0 = only on reboot)"
+    default 30
+    range 0 1440
+    depends on PROSPECTOR_VIEW_LIVE_MAP
+
+config PROSPECTOR_VIEW_GAUGE
+    bool "WPM gauge view"
+    default y
+    imply ZMK_WPM
